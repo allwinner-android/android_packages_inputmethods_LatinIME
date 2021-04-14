@@ -37,6 +37,7 @@ import android.os.Build;
 import android.os.Debug;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.text.InputType;
 import android.util.Log;
@@ -52,6 +53,8 @@ import android.view.WindowManager;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodSubtype;
+import android.view.MotionEvent;
+import android.widget.TextView;
 
 import com.android.inputmethod.accessibility.AccessibilityUtils;
 import com.android.inputmethod.annotations.UsedForTesting;
@@ -104,7 +107,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
-
+import com.android.inputmethod.keyboard.Key;
 import javax.annotation.Nonnull;
 
 /**
@@ -165,7 +168,40 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     private final boolean mIsHardwareAcceleratedDrawingEnabled;
 
     private GestureConsumer mGestureConsumer = GestureConsumer.NULL_GESTURE_CONSUMER;
+	
+	/* add by chenjd. start {{----------------------------------- */
+	/* 2013-03-04 */
+	/* make LatinIME support key operations */
 
+	private int mCurKeyboardKeyNums = 0;
+	private Keyboard mCurrentKeyboard;
+	private List<Key> mKeys;
+	private Key mLastKey = null;
+	private Key mPreKey = null;
+	private MainKeyboardView mMainInputView;
+	private int accuracy = 3;
+
+	private boolean setFields(){
+		mMainInputView = mKeyboardSwitcher.getMainKeyboardView();
+		if(mMainInputView == null || !mMainInputView.isShown()){
+			return false;
+		}
+		mCurrentKeyboard = mMainInputView.getKeyboard();
+		mKeys = mCurrentKeyboard.getSortedKeys();
+		if(mKeys != null){
+			mCurKeyboardKeyNums = mKeys.size();
+		}else{
+			mCurKeyboardKeyNums = 0;
+			return false;
+		}
+		
+		mLastKey = mCurrentKeyboard.getLastKey();
+		if(mLastKey == null){
+			return false;
+		}
+		return true;
+	}
+	/* add by Chenjd. end ---------------------------------------}} */
     public final UIHandler mHandler = new UIHandler(this);
 
     public static final class UIHandler extends LeakGuardHandlerWrapper<LatinIME> {
@@ -1265,7 +1301,229 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         }
     }
 
-    int getCurrentAutoCapsState() {
+	/* add by chenjd.start {{------------------------------- */
+	/* 2013-3-5 */
+	/* make LatinIME support key operation */
+	private int abs(int value){
+		return value >= 0? value: -value;
+	}
+
+	private static final int UP = 0;
+	private static final int DOWN = 1;
+	private static final int LEFT = 2;
+	private static final int RIGHT = 3;
+	private Key findNearestKey(int direction,Key srcKey){
+		int i = 0;
+		int distX;
+		int tmpX = 9999;
+		int distY;
+		int tmpY = 9999;
+		Key retKey = null;
+		List<Key> nearestKeyIndices = null;
+
+
+		switch(direction){
+		case UP:
+			nearestKeyIndices = mCurrentKeyboard.getNearestKeys(srcKey.getX(),srcKey.getY());
+			for(i = 0; i < nearestKeyIndices.size(); i++){
+				Key nearKey = nearestKeyIndices.get(i);
+				distY = srcKey.getY() - nearKey.getY();
+				if(distY >= nearKey.getHeight()){
+					distX = abs(nearKey.getX() - srcKey.getX());
+					if((distY < tmpY) ||
+						(distY == tmpY && distX <= tmpX)){
+						retKey = nearKey;
+						tmpY = distY;
+						tmpX = distX;
+
+					}
+				}
+			}
+			break;
+		case DOWN:
+			nearestKeyIndices = mCurrentKeyboard.getNearestKeys(srcKey.getX(),srcKey.getY());
+			for(i = 0; i < nearestKeyIndices.size(); i++){
+				Key nearKey = nearestKeyIndices.get(i);
+				distY = nearKey.getY() - srcKey.getY();
+				if(distY >= srcKey.getHeight()){
+					distX = abs(nearKey.getX() - srcKey.getX());
+					if((distY < tmpY) ||
+						(distY == tmpY && distX <= tmpX)){
+						retKey = nearKey;
+						tmpY = distY;
+						tmpX = distX;
+					}
+				}
+			}
+			break;
+		case LEFT:
+			for(i = 0; i < mKeys.size(); i++){
+				Key nearKey = mKeys.get(i);
+				int dY = nearKey.getY() - srcKey.getY();
+				if((dY >= (0 - accuracy)) && (dY <= accuracy)){
+					distX = srcKey.getX() - nearKey.getX();
+					if(distX >= nearKey.getWidth() && distX <= tmpX){
+						retKey= nearKey;
+						tmpX = distX;
+					}
+				}
+			}
+
+			break;
+		case RIGHT:
+			for(i = 0; i < mKeys.size(); i++){
+				Key nearKey = mKeys.get(i);
+				int dY = nearKey.getY() - srcKey.getY();
+				if((dY >= (0 - accuracy)) && (dY <= accuracy)){
+					distX = nearKey.getX() - srcKey.getX();
+					if(distX >= srcKey.getWidth() && distX <= tmpX){
+						retKey= nearKey;
+						tmpX = distX;
+					}
+				}
+			}
+			break;
+		}
+		return retKey;
+	}
+	
+	private Key circleToNextKey(int direction, Key srcKey) {
+		Key retKey = null;
+		int i = 0;
+		int distX;
+		int tmpX = 0;
+		switch (direction) {
+		case LEFT:
+			for (i = 0; i < mKeys.size(); i++) {
+				Key nearKey = mKeys.get(i);
+				int dY = nearKey.getY() - srcKey.getY();
+				if((dY >= (0 - accuracy)) && (dY <= accuracy)){
+					 distX = nearKey.getX() - srcKey.getX();
+					if (distX >= nearKey.getWidth() && distX >= tmpX) {
+						retKey = nearKey;
+						tmpX = distX;
+						}
+				}
+			}
+			
+
+			break;
+		case RIGHT:
+			for (i = 0; i < mKeys.size(); i++) {
+				Key nearKey = mKeys.get(i);
+				int dY = nearKey.getY() - srcKey.getY();
+				if ((dY >= (0 - accuracy)) && (dY <= accuracy)) {
+					distX = srcKey.getX() - nearKey.getX();
+					if (distX >= nearKey.getWidth() && distX >= tmpX) {
+						retKey = nearKey;
+						tmpX = distX;
+						}
+				}
+			}
+			break;
+		}
+		return retKey;
+	}
+
+	@Override
+	public boolean onKeyDown(int keyCode, KeyEvent event){
+		Key nearestKey = null;
+		switch(keyCode){
+		case KeyEvent.KEYCODE_DPAD_DOWN:
+			if(!setFields()){
+				break;
+			}
+			nearestKey = findNearestKey(DOWN, mLastKey);
+			if(nearestKey != null){
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			}
+			mMainInputView.invalidate();
+			return true;
+
+		case KeyEvent.KEYCODE_DPAD_UP:
+			if(!setFields()){
+				break;
+			}
+			nearestKey = findNearestKey(UP, mLastKey);
+			if(nearestKey != null){
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			}
+			mMainInputView.invalidate();
+			return true;
+
+		case KeyEvent.KEYCODE_DPAD_LEFT:
+			if(!setFields()){
+				break;
+			}
+			nearestKey = findNearestKey(LEFT, mLastKey);
+			if(nearestKey != null){
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			} else {
+				nearestKey = circleToNextKey(LEFT, mLastKey);
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			}
+			mMainInputView.invalidate();
+			return true;
+
+		case KeyEvent.KEYCODE_DPAD_RIGHT:
+			if(!setFields()){
+				break;
+			}
+			nearestKey = findNearestKey(RIGHT, mLastKey);
+			if(nearestKey != null){
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			} else {
+				nearestKey = circleToNextKey(RIGHT, mLastKey);
+				mCurrentKeyboard.setLastKey(nearestKey);
+				mCurrentKeyboard.setCurrentKey(nearestKey);
+			}
+			mMainInputView.invalidate();
+			return true;
+
+		case KeyEvent.KEYCODE_DPAD_CENTER:
+			if(!setFields()){
+				break;
+			}
+			if(mPreKey == mLastKey){
+				Log.d(TAG,"return true");
+				return true;
+			}
+			mPreKey = mLastKey;
+			Log.d(TAG,"X = " + mLastKey.getX() + " Y = " + mLastKey.getY());
+			final MotionEvent me = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), MotionEvent.ACTION_DOWN, mLastKey.getX()+mLastKey.getWidth()/2, mLastKey.getY()+mLastKey.getHeight()/2, 0);
+			final MainKeyboardView tempInputView = mMainInputView;
+			if (mPreKey.getCode() == Constants.CODE_ENTER) {
+				mHandler.postDelayed (new Runnable(){
+					public void run(){
+						tempInputView.onTouchEvent(me);
+				}
+				}, 100);
+			} else {
+				tempInputView.onTouchEvent(me);
+			}
+			return true;
+		}
+        //if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) return super.onKeyDown(keyCode, event);
+        // onHardwareKeyEvent, like onKeyDown returns true if it handled the event, false if
+        // it doesn't know what to do with it and leave it to the application. For example,
+        // hardware key events for adjusting the screen's brightness are passed as is.
+        //if (mEventInterpreter.onHardwareKeyEvent(event)) {
+        //    final long keyIdentifier = event.getDeviceId() << 32 + event.getKeyCode();
+        //    mCurrentlyPressedHardwareKeys.add(keyIdentifier);
+        //    return true;
+        //}
+		return super.onKeyDown(keyCode, event);
+	}
+
+	/* add by Chenjd. end -----------------------------------}} */
+    // This will reset the whole input state to the starting state. It will clear
+    // the composing word, reset the last composed word, tell the inputconnection about it.
+    private int getCurrentAutoCapsState() {
         return mInputLogic.getCurrentAutoCapsState(mSettings.getCurrent());
     }
 
@@ -1686,13 +1944,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
     }
 
     // Hooks for hardware keyboard
-    @Override
+/*    @Override
     public boolean onKeyDown(final int keyCode, final KeyEvent keyEvent) {
-        if (mEmojiAltPhysicalKeyDetector == null) {
-            mEmojiAltPhysicalKeyDetector = new EmojiAltPhysicalKeyDetector(
-                    getApplicationContext().getResources());
-        }
-        mEmojiAltPhysicalKeyDetector.onKeyDown(keyEvent);
+        mSpecialKeyDetector.onKeyDown(keyEvent);
         if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) {
             return super.onKeyDown(keyCode, keyEvent);
         }
@@ -1710,16 +1964,30 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         }
         return super.onKeyDown(keyCode, keyEvent);
     }
-
+*/
     @Override
     public boolean onKeyUp(final int keyCode, final KeyEvent keyEvent) {
-        if (mEmojiAltPhysicalKeyDetector == null) {
-            mEmojiAltPhysicalKeyDetector = new EmojiAltPhysicalKeyDetector(
-                    getApplicationContext().getResources());
-        }
-        mEmojiAltPhysicalKeyDetector.onKeyUp(keyEvent);
-        if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) {
+        /*if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) {
+			Log.d(TAG,"!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED return");
             return super.onKeyUp(keyCode, keyEvent);
+        }*/
+	    switch (keyCode) {
+			case KeyEvent.KEYCODE_DPAD_CENTER:
+            if(!setFields())
+                break;
+            final MotionEvent me = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, mLastKey.getX() + mLastKey.getWidth()/2, mLastKey.getY() + mLastKey.getHeight()/2, 0);
+            final MainKeyboardView tempInputView = mMainInputView;
+            if (mPreKey.getCode() == Constants.CODE_ENTER) {
+                mHandler.postDelayed (new Runnable(){
+                    public void run(){
+                        tempInputView.onTouchEvent(me);
+                    }
+                }, 100);
+            } else {
+                tempInputView.onTouchEvent(me);
+            }
+            mPreKey = null;
+            break;
         }
         final long keyIdentifier = keyEvent.getDeviceId() << 32 + keyEvent.getKeyCode();
         if (mInputLogic.mCurrentlyPressedHardwareKeys.remove(keyIdentifier)) {

@@ -27,7 +27,7 @@ import com.android.inputmethod.latin.common.CoordinateUtils;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+import android.util.Log;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -91,6 +91,8 @@ public class Keyboard {
     @Nonnull
     public final KeyboardIconsSet mIconsSet;
 
+	private final String TAG = "Keyboard";
+
     private final SparseArray<Key> mKeyCache = new SparseArray<>();
 
     @Nonnull
@@ -119,7 +121,7 @@ public class Keyboard {
         mShiftKeys = Collections.unmodifiableList(params.mShiftKeys);
         mAltCodeKeysWhileTyping = Collections.unmodifiableList(params.mAltCodeKeysWhileTyping);
         mIconsSet = params.mIconsSet;
-
+		mLastKey = null;
         mProximityInfo = new ProximityInfo(params.GRID_WIDTH, params.GRID_HEIGHT,
                 mOccupiedWidth, mOccupiedHeight, mMostCommonKeyWidth, mMostCommonKeyHeight,
                 mSortedKeys, params.mTouchPositionCorrection);
@@ -220,8 +222,46 @@ public class Keyboard {
             }
         }
         return false;
+	}
+    public static boolean isLetterCode(final int code) {
+        return code >= Constants.CODE_SPACE;
     }
 
+    /* add by Chenjd. start {{---------------------------- */
+    /* 2013-3-4 */
+    /* make LatinIME support key operation */
+    private static Key mLastKey = null;
+    private static Key mCurrentKey = null;
+	
+    /** provide mLastKey access */
+    public Key getLastKey() {
+        if(mLastKey == null && mSortedKeys != null && mSortedKeys.size() != 0){
+			mLastKey = (mCurrentKey == null)?getSortedKeys().get(0):mCurrentKey;
+        }
+        return mLastKey;
+    }
+
+    public int findKeyIndex(Key key){
+        if(mSortedKeys == null) {
+            return -1;
+        }
+        for(int i = 0; i < mSortedKeys.size(); i++){
+            if(key == mSortedKeys.get(i)){
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void setCurrentKey(Key key) {
+        mCurrentKey = key;
+    }
+
+    /** set key index */
+    public void setLastKey(Key key) {
+        mLastKey = key;
+    }
+    /* add by Chenjd. end --------------------------------}} */
     @Override
     public String toString() {
         return mId.toString();

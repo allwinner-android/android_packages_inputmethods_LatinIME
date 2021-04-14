@@ -63,6 +63,12 @@ import com.android.inputmethod.latin.utils.TypefaceUtils;
 import java.util.Locale;
 import java.util.WeakHashMap;
 
+import android.graphics.Rect;
+import android.graphics.Color;
+import android.graphics.Paint.Style;
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -151,6 +157,7 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
 
     // More keys keyboard
     private final Paint mBackgroundDimAlphaPaint = new Paint();
+    private boolean mNeedsToDimEntireKeyboard;
     private final View mMoreKeysKeyboardContainer;
     private final View mMoreKeysKeyboardForActionContainer;
     private final WeakHashMap<Key, Keyboard> mMoreKeysKeyboardCache = new WeakHashMap<>();
@@ -801,6 +808,62 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
         invalidateKey(mSpaceKey);
     }
 
+    private void dimEntireKeyboard(final boolean dimmed) {
+        final boolean needsRedrawing = mNeedsToDimEntireKeyboard != dimmed;
+        mNeedsToDimEntireKeyboard = dimmed;
+        if (needsRedrawing) {
+            invalidateAllKeys();
+        }
+    }
+
+    private int abs(int value){
+        return value >= 0? value: -value;
+    }
+
+    @Override
+    protected void onDraw(final Canvas canvas) {
+        super.onDraw(canvas);
+        Keyboard currentKeyboard = getKeyboard();
+        List<Key> keys = currentKeyboard.getSortedKeys();
+        Paint p = new Paint();
+        p.setColor(Color.GREEN);
+        p.setStyle(Style.STROKE);
+        p.setStrokeWidth(3.75f);
+		Key mLastKey = currentKeyboard.getLastKey();
+        if(mLastKey == null && keys != null && keys.size() != 0) {
+            mLastKey = keys.get(0);
+        }
+        else {
+            Key mostMatchKey = null;
+            int distX;
+            int distY;
+            int dist=99999;
+            List<Key> nearestKeyIndices = currentKeyboard.getNearestKeys(mLastKey.getX(),mLastKey.getY());
+            for(int i = 0; i < nearestKeyIndices.size(); i++){
+                Key nearKey = nearestKeyIndices.get(i);
+                distX = abs(mLastKey.getX() - nearKey.getX());
+                distY = abs(mLastKey.getY() - nearKey.getY());
+                if ( distX+distY < dist ) {
+                    mostMatchKey = nearKey;
+                    dist = distX+distY;
+                }
+            }
+            if (mostMatchKey != null) {
+                mLastKey = mostMatchKey;
+            }
+        }
+        Rect rect = new Rect(
+                mLastKey.getX(), mLastKey.getY(),
+                mLastKey.getX() + mLastKey.getWidth(),
+                mLastKey.getY() + mLastKey.getHeight()
+            );
+        canvas.drawRect(rect, p);
+        // Overlay a dark rectangle to dim.
+        if (mNeedsToDimEntireKeyboard) {
+            canvas.drawRect(0.0f, 0.0f, getWidth(), getHeight(), mBackgroundDimAlphaPaint);
+        }
+    }
+
     @Override
     protected void onDrawKeyTopVisuals(final Key key, final Canvas canvas, final Paint paint,
             final KeyDrawParams params) {
@@ -892,4 +955,9 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
         super.deallocateMemory();
         mDrawingPreviewPlacerView.deallocateMemory();
     }
+
+	/* add by Chenjd. start {{----------------------------------- */
+    /* 2013-3-13 */
+    /* make LatinIME support key operations */
+    /* add by Chenjd. end   -----------------------------------}} */
 }
