@@ -40,6 +40,7 @@ import android.os.Build;
 import android.os.Debug;
 import android.os.IBinder;
 import android.os.Message;
+import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.text.InputType;
 import android.util.Log;
@@ -48,6 +49,7 @@ import android.util.Printer;
 import android.util.SparseArray;
 import android.view.Gravity;
 import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
 import android.view.Window;
@@ -55,6 +57,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.CompletionInfo;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodSubtype;
+import android.widget.TextView;
 
 import com.android.inputmethod.accessibility.AccessibilityUtils;
 import com.android.inputmethod.annotations.UsedForTesting;
@@ -100,6 +103,8 @@ import com.android.inputmethod.latin.utils.StatsUtils;
 import com.android.inputmethod.latin.utils.StatsUtilsManager;
 import com.android.inputmethod.latin.utils.SubtypeLocaleUtils;
 import com.android.inputmethod.latin.utils.ViewLayoutUtils;
+import com.android.inputmethod.latin.utils.ProductCheckUtils;
+import com.android.inputmethod.keyboard.Key;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -584,6 +589,36 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         JniUtils.loadNativeLibrary();
     }
 
+    /* add for homlet */
+    private int mCurKeyboardKeyNums = 0;
+    private Keyboard mCurrentKeyboard;
+    private List<Key> mKeys;
+    private Key mLastKey = null;
+    private Key mPreKey = null;
+    private MainKeyboardView mMainInputView;
+    private int accuracy = 3;
+
+    private boolean setFields(){
+        mMainInputView = mKeyboardSwitcher.getMainKeyboardView();
+        if (mMainInputView == null || !mMainInputView.isShown()) {
+            return false;
+        }
+        mCurrentKeyboard = mMainInputView.getKeyboard();
+        mKeys = mCurrentKeyboard.getSortedKeys();
+        if (mKeys != null) {
+            mCurKeyboardKeyNums = mKeys.size();
+        } else {
+            mCurKeyboardKeyNums = 0;
+            return false;
+        }
+
+        mLastKey = mCurrentKeyboard.getLastKey();
+        if (mLastKey == null) {
+            return false;
+        }
+        return true;
+    }
+
     public LatinIME() {
         super();
         mSettings = Settings.getInstance();
@@ -591,6 +626,8 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         mStatsUtilsManager = StatsUtilsManager.getInstance();
         mIsHardwareAcceleratedDrawingEnabled =
                 InputMethodServiceCompatUtils.enableHardwareAcceleration(this);
+        // get Product type , such as homlet
+        ProductCheckUtils.checkProductType();
         Log.i(TAG, "Hardware accelerated drawing: " + mIsHardwareAcceleratedDrawingEnabled);
     }
 
@@ -1329,6 +1366,236 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
         }
     }
 
+    /* make LatinIME support key operation */
+    private int abs(int value){
+        return value >= 0? value: -value;
+    }
+
+    private static final int UP = 0;
+    private static final int DOWN = 1;
+    private static final int LEFT = 2;
+    private static final int RIGHT = 3;
+    private Key findNearestKey(int direction,Key srcKey){
+        int i = 0;
+        int distX;
+        int tmpX = 9999;
+        int distY;
+        int tmpY = 9999;
+        Key retKey = null;
+        List<Key> nearestKeyIndices = null;
+
+        switch (direction) {
+            case UP:
+                nearestKeyIndices = mCurrentKeyboard.getNearestKeys(srcKey.getX(),srcKey.getY());
+                for (i = 0; i < nearestKeyIndices.size(); i++) {
+                    Key nearKey = nearestKeyIndices.get(i);
+                    distY = srcKey.getY() - nearKey.getY();
+                    if (distY >= nearKey.getHeight()) {
+                        distX = abs(nearKey.getX() - srcKey.getX());
+                        if ((distY < tmpY) ||
+                                (distY == tmpY && distX <= tmpX)) {
+                            retKey = nearKey;
+                            tmpY = distY;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+            case DOWN:
+                nearestKeyIndices = mCurrentKeyboard.getNearestKeys(srcKey.getX(),srcKey.getY());
+                for (i = 0; i < nearestKeyIndices.size(); i++) {
+                    Key nearKey = nearestKeyIndices.get(i);
+                    distY = nearKey.getY() - srcKey.getY();
+                    if (distY >= srcKey.getHeight()) {
+                        distX = abs(nearKey.getX() - srcKey.getX());
+                        if ((distY < tmpY) ||(distY == tmpY && distX <= tmpX)) {
+                            retKey = nearKey;
+                            tmpY = distY;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+            case LEFT:
+                for (i = 0; i < mKeys.size(); i++) {
+                    Key nearKey = mKeys.get(i);
+                    int dY = nearKey.getY() - srcKey.getY();
+                    if ((dY >= (0 - accuracy)) && (dY <= accuracy)) {
+                        distX = srcKey.getX() - nearKey.getX();
+                        if (distX >= nearKey.getWidth() && distX <= tmpX) {
+                            retKey= nearKey;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+            case RIGHT:
+                for (i = 0; i < mKeys.size(); i++) {
+                    Key nearKey = mKeys.get(i);
+                    int dY = nearKey.getY() - srcKey.getY();
+                    if ((dY >= (0 - accuracy)) && (dY <= accuracy)) {
+                        distX = nearKey.getX() - srcKey.getX();
+                        if (distX >= srcKey.getWidth() && distX <= tmpX) {
+                            retKey= nearKey;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+        }
+        return retKey;
+    }
+
+    private Key circleToNextKey(int direction, Key srcKey) {
+        Key retKey = null;
+        int i = 0;
+        int distX;
+        int tmpX = 0;
+        switch (direction) {
+            case LEFT:
+                for (i = 0; i < mKeys.size(); i++) {
+                    Key nearKey = mKeys.get(i);
+                    int dY = nearKey.getY() - srcKey.getY();
+                    if ((dY >= (0 - accuracy)) && (dY <= accuracy)) {
+                        distX = nearKey.getX() - srcKey.getX();
+                        if (distX >= nearKey.getWidth() && distX >= tmpX) {
+                            retKey = nearKey;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+            case RIGHT:
+                for (i = 0; i < mKeys.size(); i++) {
+                    Key nearKey = mKeys.get(i);
+                    int dY = nearKey.getY() - srcKey.getY();
+                    if ((dY >= (0 - accuracy)) && (dY <= accuracy)) {
+                        distX = srcKey.getX() - nearKey.getX();
+                        if (distX >= nearKey.getWidth() && distX >= tmpX) {
+                            retKey = nearKey;
+                            tmpX = distX;
+                        }
+                    }
+                }
+                break;
+        }
+        return retKey;
+    }
+
+    private boolean onKeyDownForHomlet(int keyCode, KeyEvent event) {
+        Key nearestKey = null;
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+                AudioAndHapticFeedbackManager.getInstance().performAudioFeedback(keyCode);
+                if (!setFields()) {
+                    break;
+                }
+                nearestKey = findNearestKey(DOWN, mLastKey);
+                if (nearestKey != null) {
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                }
+                mMainInputView.invalidate();
+                return true;
+
+            case KeyEvent.KEYCODE_DPAD_UP:
+                AudioAndHapticFeedbackManager.getInstance().performAudioFeedback(keyCode);
+                if (!setFields()) {
+                    break;
+                }
+                nearestKey = findNearestKey(UP, mLastKey);
+                if (nearestKey != null) {
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                }
+                mMainInputView.invalidate();
+                return true;
+
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                AudioAndHapticFeedbackManager.getInstance().performAudioFeedback(keyCode);
+                if (!setFields()) {
+                    break;
+                }
+                nearestKey = findNearestKey(LEFT, mLastKey);
+                if (nearestKey != null) {
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                } else {
+                    nearestKey = circleToNextKey(LEFT, mLastKey);
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                }
+                mMainInputView.invalidate();
+                return true;
+
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                AudioAndHapticFeedbackManager.getInstance().performAudioFeedback(keyCode);
+                if (!setFields()) {
+                    break;
+                }
+                nearestKey = findNearestKey(RIGHT, mLastKey);
+                if (nearestKey != null) {
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                } else {
+                    nearestKey = circleToNextKey(RIGHT, mLastKey);
+                    mCurrentKeyboard.setLastKey(nearestKey);
+                    mCurrentKeyboard.setCurrentKey(nearestKey);
+                }
+                mMainInputView.invalidate();
+                return true;
+
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+                if (!setFields()) {
+                    Log.d(TAG,"setFields fail, break");
+                    break;
+                }
+                if (mPreKey == mLastKey) {
+                    Log.d(TAG,"return true");
+                    return true;
+                }
+                mPreKey = mLastKey;
+                final MotionEvent me = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), MotionEvent.ACTION_DOWN, mLastKey.getX()+mLastKey.getWidth()/2, mLastKey.getY()+mLastKey.getHeight()/2, 0);
+                final MainKeyboardView tempInputView = mMainInputView;
+                if (mPreKey.getCode() == Constants.CODE_ENTER) {
+                    mHandler.postDelayed(new Runnable() {
+                        public void run() {
+                            tempInputView.onTouchEvent(me);
+                        }
+                    }, 100);
+                } else {
+                    tempInputView.onTouchEvent(me);
+                }
+                return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private boolean onKeyUpForHomlet(final int keyCode, final KeyEvent keyEvent) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+                if (!setFields() || mPreKey == null)
+                    break;
+                final MotionEvent me = MotionEvent.obtain(SystemClock.uptimeMillis(), SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, mLastKey.getX() + mLastKey.getWidth()/2, mLastKey.getY() + mLastKey.getHeight()/2, 0);
+                final MainKeyboardView tempInputView = mMainInputView;
+                if (mPreKey.getCode() == Constants.CODE_ENTER) {
+                    mHandler.postDelayed (new Runnable() {
+                        public void run() {
+                            tempInputView.onTouchEvent(me);
+                        }
+                    }, 100);
+                } else {
+                    tempInputView.onTouchEvent(me);
+                }
+                mPreKey = null;
+                break;
+        }
+        return super.onKeyUp(keyCode, keyEvent);
+    }
+
+    // This will reset the whole input state to the starting state. It will clear
+    // the composing word, reset the last composed word, tell the inputconnection about it.
+
     int getCurrentAutoCapsState() {
         return mInputLogic.getCurrentAutoCapsState(mSettings.getCurrent());
     }
@@ -1757,6 +2024,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
                     getApplicationContext().getResources());
         }
         mEmojiAltPhysicalKeyDetector.onKeyDown(keyEvent);
+        if (ProductCheckUtils.isHomlet()) {
+            return onKeyDownForHomlet(keyCode, keyEvent);
+        }
         if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) {
             return super.onKeyDown(keyCode, keyEvent);
         }
@@ -1782,6 +2052,9 @@ public class LatinIME extends InputMethodService implements KeyboardActionListen
                     getApplicationContext().getResources());
         }
         mEmojiAltPhysicalKeyDetector.onKeyUp(keyEvent);
+        if (ProductCheckUtils.isHomlet()) {
+            return onKeyUpForHomlet(keyCode, keyEvent);
+        }
         if (!ProductionFlags.IS_HARDWARE_KEYBOARD_SUPPORTED) {
             return super.onKeyUp(keyCode, keyEvent);
         }

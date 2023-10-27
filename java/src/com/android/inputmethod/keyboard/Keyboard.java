@@ -17,6 +17,7 @@
 package com.android.inputmethod.keyboard;
 
 import android.util.SparseArray;
+import android.util.Log;
 
 import com.android.inputmethod.keyboard.internal.KeyVisualAttributes;
 import com.android.inputmethod.keyboard.internal.KeyboardIconsSet;
@@ -50,6 +51,7 @@ import javax.annotation.Nullable;
  * </pre>
  */
 public class Keyboard {
+    private final String TAG = "Keyboard";
     @Nonnull
     public final KeyboardId mId;
     public final int mThemeId;
@@ -100,6 +102,10 @@ public class Keyboard {
 
     private final boolean mProximityCharsCorrectionEnabled;
 
+    /* support for ir key */
+    private static Key mLastKey = null;
+    private static Key mCurrentKey = null;
+
     public Keyboard(@Nonnull final KeyboardParams params) {
         mId = params.mId;
         mThemeId = params.mThemeId;
@@ -119,6 +125,8 @@ public class Keyboard {
         mShiftKeys = Collections.unmodifiableList(params.mShiftKeys);
         mAltCodeKeysWhileTyping = Collections.unmodifiableList(params.mAltCodeKeysWhileTyping);
         mIconsSet = params.mIconsSet;
+        mLastKey = null;
+        mCurrentKey = null;
 
         mProximityInfo = new ProximityInfo(params.GRID_WIDTH, params.GRID_HEIGHT,
                 mOccupiedWidth, mOccupiedHeight, mMostCommonKeyWidth, mMostCommonKeyHeight,
@@ -147,11 +155,42 @@ public class Keyboard {
         mShiftKeys = keyboard.mShiftKeys;
         mAltCodeKeysWhileTyping = keyboard.mAltCodeKeysWhileTyping;
         mIconsSet = keyboard.mIconsSet;
+        mLastKey = null;
+        mCurrentKey = null;
 
         mProximityInfo = keyboard.mProximityInfo;
         mProximityCharsCorrectionEnabled = keyboard.mProximityCharsCorrectionEnabled;
         mKeyboardLayout = keyboard.mKeyboardLayout;
     }
+
+    /* add for homley */
+    public static boolean isLetterCode(final int code) {
+        return code >= Constants.CODE_SPACE;
+    }
+
+    public Key getLastKey() {
+        if (mLastKey == null && mSortedKeys != null && mSortedKeys.size() != 0) {
+            mLastKey = (mCurrentKey == null) ? getSortedKeys().get(0) : mCurrentKey;
+        }
+        return mLastKey;
+    }
+
+    public void setCurrentKey(Key key) {
+        mCurrentKey = key;
+    }
+
+    public void setLastKey(Key key) {
+        mLastKey = key;
+    }
+
+    public int findKeyIndex(Key key) {
+        if (mSortedKeys == null) return -1;
+        for (int i = 0; i < mSortedKeys.size(); i++){
+            if (key == mSortedKeys.get(i)) return i;
+        }
+        return -1;
+    }
+    /* add for homlet end */
 
     public boolean hasProximityCharsCorrection(final int code) {
         if (!mProximityCharsCorrectionEnabled) {

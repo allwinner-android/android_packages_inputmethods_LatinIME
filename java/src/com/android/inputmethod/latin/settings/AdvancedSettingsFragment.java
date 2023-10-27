@@ -28,6 +28,7 @@ import com.android.inputmethod.latin.AudioAndHapticFeedbackManager;
 import com.android.inputmethod.latin.R;
 import com.android.inputmethod.latin.SystemBroadcastReceiver;
 import com.android.inputmethod.latin.define.ProductionFlags;
+import com.android.inputmethod.latin.utils.ProductCheckUtils;
 
 /**
  * "Advanced" settings sub screen.
@@ -44,7 +45,11 @@ public final class AdvancedSettingsFragment extends SubScreenFragment {
     @Override
     public void onCreate(final Bundle icicle) {
         super.onCreate(icicle);
-        addPreferencesFromResource(R.xml.prefs_screen_advanced);
+        if (ProductCheckUtils.isHomlet()) {
+            addPreferencesFromResource(R.xml.prefs_screen_advanced_homlet);
+		} else {
+            addPreferencesFromResource(R.xml.prefs_screen_advanced);
+        }
 
         final Resources res = getResources();
         final Context context = getActivity();
@@ -226,8 +231,13 @@ public final class AdvancedSettingsFragment extends SubScreenFragment {
     private void setupKeyLongpressTimeoutSettings() {
         final SharedPreferences prefs = getSharedPreferences();
         final Resources res = getResources();
-        final SeekBarDialogPreference pref = (SeekBarDialogPreference)findPreference(
-                Settings.PREF_KEY_LONGPRESS_TIMEOUT);
+        String prefKey;
+        if (ProductCheckUtils.isHomlet()) {
+            prefKey = Settings.PREF_KEY_LONGPRESS_TIMEOUT_HOMLET;
+        } else {
+            prefKey = Settings.PREF_KEY_LONGPRESS_TIMEOUT;
+        }
+        final SeekBarDialogPreference pref = (SeekBarDialogPreference)findPreference(prefKey);
         if (pref == null) {
             return;
         }

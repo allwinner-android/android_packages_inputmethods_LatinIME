@@ -34,6 +34,7 @@ import com.android.inputmethod.latin.utils.AdditionalSubtypeUtils;
 import com.android.inputmethod.latin.utils.ResourceUtils;
 import com.android.inputmethod.latin.utils.RunInLocale;
 import com.android.inputmethod.latin.utils.StatsUtils;
+import com.android.inputmethod.latin.utils.ProductCheckUtils;
 
 import java.util.Collections;
 import java.util.Locale;
@@ -90,6 +91,7 @@ public final class Settings implements SharedPreferences.OnSharedPreferenceChang
             "pref_vibration_duration_settings";
     public static final String PREF_KEYPRESS_SOUND_VOLUME = "pref_keypress_sound_volume";
     public static final String PREF_KEY_LONGPRESS_TIMEOUT = "pref_key_longpress_timeout";
+    public static final String PREF_KEY_LONGPRESS_TIMEOUT_HOMLET = "pref_key_longpress_timeout_homlet";
     public static final String PREF_ENABLE_EMOJI_ALT_PHYSICAL_KEY =
             "pref_enable_emoji_alt_physical_key";
     public static final String PREF_GESTURE_PREVIEW_TRAIL = "pref_gesture_preview_trail";
@@ -303,13 +305,21 @@ public final class Settings implements SharedPreferences.OnSharedPreferenceChang
 
     public static int readKeyLongpressTimeout(final SharedPreferences prefs,
             final Resources res) {
+        String prefKey;
+        if (ProductCheckUtils.isHomlet()) {
+            prefKey = PREF_KEY_LONGPRESS_TIMEOUT_HOMLET;
+        } else {
+            prefKey = PREF_KEY_LONGPRESS_TIMEOUT;
+        }
         final int milliseconds = prefs.getInt(
-                PREF_KEY_LONGPRESS_TIMEOUT, UNDEFINED_PREFERENCE_VALUE_INT);
+                prefKey, UNDEFINED_PREFERENCE_VALUE_INT);
         return (milliseconds != UNDEFINED_PREFERENCE_VALUE_INT) ? milliseconds
                 : readDefaultKeyLongpressTimeout(res);
     }
 
     public static int readDefaultKeyLongpressTimeout(final Resources res) {
+        if (ProductCheckUtils.isHomlet())
+            return res.getInteger(R.integer.config_default_longpress_key_timeout_homlet);
         return res.getInteger(R.integer.config_default_longpress_key_timeout);
     }
 

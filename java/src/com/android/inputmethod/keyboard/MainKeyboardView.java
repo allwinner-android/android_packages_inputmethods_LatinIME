@@ -26,7 +26,9 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Paint.Align;
+import android.graphics.Paint.Style;
 import android.graphics.Typeface;
+import android.graphics.Rect;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
 import android.util.AttributeSet;
@@ -59,7 +61,10 @@ import com.android.inputmethod.latin.common.CoordinateUtils;
 import com.android.inputmethod.latin.settings.DebugSettings;
 import com.android.inputmethod.latin.utils.LanguageOnSpacebarUtils;
 import com.android.inputmethod.latin.utils.TypefaceUtils;
+import com.android.inputmethod.latin.utils.ProductCheckUtils;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.WeakHashMap;
 
@@ -171,6 +176,9 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
 
     private MainKeyboardAccessibilityDelegate mAccessibilityDelegate;
 
+    /* add for homlet */
+    private boolean mNeedsToDimEntireKeyboard;
+
     public MainKeyboardView(final Context context, final AttributeSet attrs) {
         this(context, attrs, R.attr.mainKeyboardViewStyle);
     }
@@ -274,6 +282,57 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
         mLanguageOnSpacebarHorizontalMargin = (int)getResources().getDimension(
                 R.dimen.config_language_on_spacebar_horizontal_margin);
     }
+
+    /* add for homlet */
+    private int abs(int value) {
+        return value >= 0 ? value : -value;
+    }
+
+    @Override
+    protected void onDraw(final Canvas canvas) {
+        super.onDraw(canvas);
+        if (!ProductCheckUtils.isHomlet())
+            return;
+        Keyboard currentKeyboard = getKeyboard();
+        List<Key> keys = currentKeyboard.getSortedKeys();
+        Paint p = new Paint();
+        p.setColor(Color.GREEN);
+        p.setStyle(Style.STROKE);
+        p.setStrokeWidth(3.75f);
+        Key mLastKey = currentKeyboard.getLastKey();
+        if (mLastKey == null && keys != null && keys.size() != 0) {
+            mLastKey = keys.get(0);
+        } else {
+            Key mostMatchKey = null;
+            int distX;
+            int distY;
+            int dist=99999;
+            List<Key> nearestKeyIndices = currentKeyboard.getNearestKeys(mLastKey.getX(),mLastKey.getY());
+            for (int i = 0; i < nearestKeyIndices.size(); i++) {
+                Key nearKey = nearestKeyIndices.get(i);
+                distX = abs(mLastKey.getX() - nearKey.getX());
+                distY = abs(mLastKey.getY() - nearKey.getY());
+                if (distX+distY < dist ) {
+                    mostMatchKey = nearKey;
+                    dist = distX+distY;
+                }
+            }
+            if (mostMatchKey != null) {
+                mLastKey = mostMatchKey;
+            }
+        }
+        Rect rect = new Rect(
+                mLastKey.getX(), mLastKey.getY(),
+                mLastKey.getX() + mLastKey.getWidth(),
+                mLastKey.getY() + mLastKey.getHeight()
+            );
+        canvas.drawRect(rect, p);
+        // Overlay a dark rectangle to dim.
+        if (mNeedsToDimEntireKeyboard) {
+            canvas.drawRect(0.0f, 0.0f, getWidth(), getHeight(), mBackgroundDimAlphaPaint);
+        }
+    }
+    /* add for homlet end */
 
     @Override
     public void setHardwareAcceleratedDrawingEnabled(final boolean enabled) {
